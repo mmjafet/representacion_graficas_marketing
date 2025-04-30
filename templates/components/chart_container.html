@@ -1,0 +1,13 @@
+<div class="chart-container">
+    <h2 class="text-2xl font-bold mb-4">Charts</h2>
+    <div class="flex flex-col space-y-4">
+        <button id="btn-heatmap" class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600" onclick="renderHeatmap()">Show Heatmap</button>
+        <button id="btn-distplot" class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600" onclick="renderDistplot()">Show Distribution Plots</button>
+        <button id="btn-scatter" class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600" onclick="renderScatterMatrix()">Show Scatter Matrix</button>
+        <button id="btn-kmeans" class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600" onclick="renderKMeans()">Show K-Means Clustering</button>
+        <button id="btn-pca" class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600" onclick="renderPCA()">Show PCA Visualization</button>
+    </div>
+    <div id="chart-output" class="mt-6">
+        <!-- Charts will be rendered here -->
+    </div>
+</div>

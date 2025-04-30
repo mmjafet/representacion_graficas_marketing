@@ -1,0 +1,1135 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="grid grid-cols-1 gap-6">
+    <!-- Dashboard Controls -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">Chart Selection</h2>
+        <div class="flex flex-wrap gap-3">
+            <button id="btn-correlation" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+                Correlation Matrix
+            </button>
+            <button id="btn-sales-time" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
+                Sales Over Time
+            </button>
+            <button id="btn-distribution" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded">
+                Distribution Chart
+            </button>
+            <button id="btn-scatter" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded">
+                Scatter Plot
+            </button>
+            <button id="btn-pca" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+                PCA Visualization
+            </button>
+        </div>
+        
+        <!-- Additional controls that appear based on chart selection -->
+        <div id="chart-controls" class="mt-4 hidden">
+            <div id="distribution-controls" class="hidden">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Select Column:</label>
+                <select id="column-selector" class="w-full p-2 border rounded">
+                    <!-- Options will be populated dynamically -->
+                </select>
+            </div>
+            
+            <div id="scatter-controls" class="hidden grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">X-Axis:</label>
+                    <select id="x-axis-selector" class="w-full p-2 border rounded">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Y-Axis:</label>
+                    <select id="y-axis-selector" class="w-full p-2 border rounded">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Chart Display Area -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div id="chart-title" class="text-xl font-bold mb-4">
+            Select a chart type above to begin
+        </div>
+        <div id="chart-area" class="chart-container">
+            <!-- Chart will be rendered here -->
+            <div class="flex items-center justify-center h-full text-gray-500">
+                <p>Click on one of the chart buttons above to load a visualization</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get DOM elements
+        const chartArea = document.getElementById('chart-area');
+        const chartTitle = document.getElementById('chart-title');
+        const chartControls = document.getElementById('chart-controls');
+        const distributionControls = document.getElementById('distribution-controls');
+        const scatterControls = document.getElementById('scatter-controls');
+        const columnSelector = document.getElementById('column-selector');
+        const xAxisSelector = document.getElementById('x-axis-selector');
+        const yAxisSelector = document.getElementById('y-axis-selector');
+        
+        // Button click handlers
+        document.getElementById('btn-correlation').addEventListener('click', function() {
+            chartTitle.textContent = 'Correlation Matrix';
+            hideAllControls();
+            fetchCorrelationMatrix();
+        });
+        
+        document.getElementById('btn-sales-time').addEventListener('click', function() {
+            chartTitle.textContent = 'Sales Over Time';
+            hideAllControls();
+            fetchSalesByDate();
+        });
+        
+        document.getElementById('btn-distribution').addEventListener('click', function() {
+            chartTitle.textContent = 'Distribution Chart';
+            hideAllControls();
+            showDistributionControls();
+        });
+        
+        document.getElementById('btn-scatter').addEventListener('click', function() {
+            chartTitle.textContent = 'Scatter Plot';
+            hideAllControls();
+            showScatterControls();
+        });
+        
+        document.getElementById('btn-pca').addEventListener('click', function() {
+            chartTitle.textContent = 'Visualización PCA';
+            hideAllControls();
+            fetchPCAData();
+        });
+        
+        // Fetch column names for dropdowns
+        fetchColumnNames();
+        
+        // Add event listeners to dropdowns
+        columnSelector.addEventListener('change', function() {
+            fetchDistribution(this.value);
+        });
+        
+        xAxisSelector.addEventListener('change', updateScatterPlot);
+        yAxisSelector.addEventListener('change', updateScatterPlot);
+        
+        // Helper functions
+        function hideAllControls() {
+            chartControls.classList.add('hidden');
+            distributionControls.classList.add('hidden');
+            scatterControls.classList.add('hidden');
+        }
+        
+        function showDistributionControls() {
+            chartControls.classList.remove('hidden');
+            distributionControls.classList.remove('hidden');
+            scatterControls.classList.add('hidden');
+            
+            // Trigger distribution chart for the first column
+            if (columnSelector.options.length > 0) {
+                fetchDistribution(columnSelector.value);
+            }
+        }
+        
+        function showScatterControls() {
+            chartControls.classList.remove('hidden');
+            distributionControls.classList.add('hidden');
+            scatterControls.classList.remove('hidden');
+            
+            // Trigger scatter plot for the selected columns
+            if (xAxisSelector.options.length > 0 && yAxisSelector.options.length > 0) {
+                updateScatterPlot();
+            }
+        }
+        
+        function showMessage(message) {
+            chartArea.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500">
+                <p>${message}</p>
+            </div>`;
+        }
+        
+        // Data fetching functions
+        function fetchColumnNames() {
+            fetch('/api/columns')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error);
+                        return;
+                    }
+                    
+                    // Populate column selectors
+                    populateSelector(columnSelector, data.columns);
+                    populateSelector(xAxisSelector, data.columns);
+                    populateSelector(yAxisSelector, data.columns);
+                    
+                    // Set default second option for y-axis if available
+                    if (data.columns.length > 1) {
+                        yAxisSelector.selectedIndex = 1;
+                    }
+                })
+                .catch(error => {
+                    showMessage('Error fetching column names: ' + error);
+                });
+        }
+        
+        function populateSelector(selector, options) {
+            selector.innerHTML = '';
+            options.forEach(option => {
+                const opt = document.createElement('option');
+                opt.value = option;
+                opt.textContent = option;
+                selector.appendChild(opt);
+            });
+        }
+        
+        // Reemplazar la función fetchCorrelationMatrix existente
+
+        function fetchCorrelationMatrix() {
+            showMessage('Loading correlation matrix...');
+            
+            fetch('/api/correlation_matrix')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error);
+                        return;
+                    }
+                    
+                    // Convert data to format needed by plotly
+                    const features = Object.keys(data);
+                    const correlationMatrix = [];
+                    
+                    features.forEach(feature => {
+                        const row = [];
+                        features.forEach(f => {
+                            row.push(data[feature][f]);
+                        });
+                        correlationMatrix.push(row);
+                    });
+                    
+                    // Create heatmap
+                    const heatmap = [{
+                        z: correlationMatrix,
+                        x: features,
+                        y: features,
+                        type: 'heatmap',
+                        colorscale: 'Viridis',
+                        showscale: true,
+                        text: correlationMatrix.map((row, i) => {
+                            return row.map((val, j) => {
+                                return `${features[i]} vs ${features[j]}: ${val.toFixed(2)}`;
+                            });
+                        }),
+                        hoverinfo: 'text'
+                    }];
+                    
+                    const layout = {
+                        title: 'Matriz de Correlación',
+                        height: 600,
+                        width: chartArea.offsetWidth,
+                        xaxis: {
+                            title: 'Variables'
+                        },
+                        yaxis: {
+                            title: 'Variables'
+                        }
+                    };
+                    
+                    Plotly.newPlot(chartArea, heatmap, layout);
+                    
+                    // Usar una función especializada para la descripción
+                    addCorrelationDescription(features);
+                })
+                .catch(error => {
+                    showMessage('Error fetching correlation data: ' + error);
+                });
+        }
+        
+        // Nueva función especializada para matriz de correlación
+        function addCorrelationDescription(features) {
+            // Obtener o crear el contenedor principal
+            let descriptionContainer = document.getElementById('correlation-description-container');
+            
+            if (!descriptionContainer) {
+                descriptionContainer = document.createElement('div');
+                descriptionContainer.id = 'correlation-description-container';
+                descriptionContainer.className = 'mt-6 grid grid-cols-1 md:grid-cols-2 gap-4';
+                
+                // Insertar después del área del gráfico
+                chartArea.parentNode.insertBefore(descriptionContainer, chartArea.nextSibling);
+            } else {
+                // Limpiar el contenedor si ya existe
+                descriptionContainer.innerHTML = '';
+            }
+            
+            // Tarjeta de explicación general
+            const generalCard = document.createElement('div');
+            generalCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            generalCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">¿Qué es una Matriz de Correlación?</h3>
+                <p class="text-gray-700 mb-2">
+                    La matriz de correlación muestra la relación lineal entre pares de variables numéricas en los datos.
+                    Es una herramienta fundamental para identificar asociaciones entre diferentes métricas de marketing.
+                </p>
+                <p class="text-gray-700">
+                    Los valores van de -1 a 1, donde:
+                    <ul class="list-disc ml-5 mt-2">
+                        <li><strong>1</strong> indica una correlación positiva perfecta (cuando una variable aumenta, la otra también)</li>
+                        <li><strong>0</strong> indica que no hay correlación (las variables son independientes)</li>
+                        <li><strong>-1</strong> indica una correlación negativa perfecta (cuando una variable aumenta, la otra disminuye)</li>
+                    </ul>
+                </p>
+            `;
+            
+            // Tarjeta de interpretación
+            const interpretationCard = document.createElement('div');
+            interpretationCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            interpretationCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Interpretación Práctica</h3>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-blue-700">Colores intensos:</strong> Indican correlaciones fuertes (positivas o negativas).
+                </p>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-blue-700">Diagonal:</strong> Siempre muestra correlación 1 (cada variable correlacionada consigo misma).
+                </p>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-blue-700">Correlaciones positivas:</strong> Variables que tienden a aumentar juntas.
+                    Por ejemplo, si el precio y las ventas tienen correlación positiva, sugiere que productos más caros se venden más (posible indicador de productos premium).
+                </p>
+                <p class="text-gray-700">
+                    <strong class="text-blue-700">Correlaciones negativas:</strong> Variables que se mueven en direcciones opuestas.
+                    Por ejemplo, si el precio y la cantidad tienen correlación negativa, indica que los productos más caros se venden en menor cantidad (sensibilidad al precio).
+                </p>
+            `;
+            
+            // Tarjeta de aplicación en marketing
+            const marketingCard = document.createElement('div');
+            marketingCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            marketingCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Aplicación en Marketing</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Identificar drivers de ventas:</strong> Descubrir qué variables tienen mayor correlación con las ventas.</li>
+                    <li><strong>Optimizar campañas:</strong> Enfocar esfuerzos en variables con mayor impacto positivo.</li>
+                    <li><strong>Estrategia de precios:</strong> Entender la relación entre precio, cantidad y ventas totales.</li>
+                    <li><strong>Multicolinealidad:</strong> Identificar variables redundantes (altamente correlacionadas entre sí) para simplificar modelos predictivos.</li>
+                </ul>
+            `;
+            
+            // Tarjeta de variables importantes
+            const variablesCard = document.createElement('div');
+            variablesCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            variablesCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Variables Analizadas</h3>
+                <p class="text-gray-700 mb-3">Esta matriz analiza las siguientes variables:</p>
+                <div class="grid grid-cols-2 gap-2">
+                    ${features.map(feature => 
+                        `<div class="bg-gray-100 p-2 rounded">
+                            <span class="font-semibold">${feature}</span>
+                        </div>`
+                    ).join('')}
+                </div>
+            `;
+            
+            // Añadir todas las tarjetas al contenedor
+            descriptionContainer.appendChild(generalCard);
+            descriptionContainer.appendChild(interpretationCard);
+            descriptionContainer.appendChild(marketingCard);
+            descriptionContainer.appendChild(variablesCard);
+            
+            // Eliminar cualquier descripción antigua
+            removeOldDescriptions();
+        }
+        
+        // Reemplazar la función fetchSalesByDate existente
+        function fetchSalesByDate() {
+            showMessage('Loading sales data...');
+            
+            fetch('/api/sales_by_date')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error);
+                        return;
+                    }
+                    
+                    // Create time series plot
+                    const trace = {
+                        x: data.dates,
+                        y: data.sales,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        marker: {
+                            color: 'rgb(31, 119, 180)',
+                            size: 6
+                        },
+                        line: {
+                            color: 'rgb(31, 119, 180)',
+                            width: 2
+                        }
+                    };
+                    
+                    const layout = {
+                        title: 'Ventas a lo Largo del Tiempo',
+                        height: 600,
+                        width: chartArea.offsetWidth,
+                        xaxis: {
+                            title: 'Fecha'
+                        },
+                        yaxis: {
+                            title: 'Ventas'
+                        }
+                    };
+                    
+                    Plotly.newPlot(chartArea, [trace], layout);
+                    
+                    // Usar una función especializada para la descripción
+                    addTimeSeriesDescription(data);
+                })
+                .catch(error => {
+                    showMessage('Error fetching sales data: ' + error);
+                });
+        }
+        
+        // Nueva función especializada para series temporales
+        function addTimeSeriesDescription(data) {
+            // Obtener o crear el contenedor principal
+            let descriptionContainer = document.getElementById('timeseries-description-container');
+            
+            if (!descriptionContainer) {
+                descriptionContainer = document.createElement('div');
+                descriptionContainer.id = 'timeseries-description-container';
+                descriptionContainer.className = 'mt-6 grid grid-cols-1 md:grid-cols-2 gap-4';
+                
+                // Insertar después del área del gráfico
+                chartArea.parentNode.insertBefore(descriptionContainer, chartArea.nextSibling);
+            } else {
+                // Limpiar el contenedor si ya existe
+                descriptionContainer.innerHTML = '';
+            }
+            
+            // Calcular estadísticas básicas
+            const sales = data.sales || [];
+            const avgSales = sales.length > 0 ? sales.reduce((a, b) => a + b, 0) / sales.length : 0;
+            const maxSales = sales.length > 0 ? Math.max(...sales) : 0;
+            const minSales = sales.length > 0 ? Math.min(...sales) : 0;
+            
+            // Tarjeta de explicación general
+            const generalCard = document.createElement('div');
+            generalCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            generalCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Análisis de Ventas en el Tiempo</h3>
+                <p class="text-gray-700 mb-2">
+                    Este gráfico muestra la evolución de las ventas a lo largo del tiempo, permitiendo identificar
+                    patrones estacionales, tendencias generales y anomalías en el comportamiento de ventas.
+                </p>
+                <p class="text-gray-700">
+                    Una serie temporal de ventas es fundamental para entender la dinámica del negocio
+                    y proyectar resultados futuros con base en patrones históricos.
+                </p>
+            `;
+            
+            // Tarjeta de estadísticas
+            const statsCard = document.createElement('div');
+            statsCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            statsCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Estadísticas Clave</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="bg-blue-50 p-3 rounded-lg text-center">
+                        <p class="text-sm text-blue-700">Venta Promedio</p>
+                        <p class="text-xl font-bold text-blue-900">${avgSales.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-green-50 p-3 rounded-lg text-center">
+                        <p class="text-sm text-green-700">Venta Máxima</p>
+                        <p class="text-xl font-bold text-green-900">${maxSales.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-red-50 p-3 rounded-lg text-center">
+                        <p class="text-sm text-red-700">Venta Mínima</p>
+                        <p class="text-xl font-bold text-red-900">${minSales.toFixed(2)}</p>
+                    </div>
+                </div>
+            `;
+            
+            // Tarjeta de interpretación
+            const interpretationCard = document.createElement('div');
+            interpretationCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            interpretationCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Interpretación del Gráfico</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Picos:</strong> Representan periodos de ventas altas, posiblemente influenciados por temporadas, promociones o eventos externos.</li>
+                    <li><strong>Valles:</strong> Indican periodos de ventas bajas que podrían requerir estrategias de reactivación.</li>
+                    <li><strong>Tendencia:</strong> La dirección general de la línea muestra si el negocio está creciendo, estable o en declive a lo largo del tiempo.</li>
+                    <li><strong>Ciclos:</strong> Patrones repetitivos que pueden indicar estacionalidad (ventas navideñas, de verano, etc.).</li>
+                </ul>
+            `;
+            
+            // Tarjeta de aplicación en marketing
+            const marketingCard = document.createElement('div');
+            marketingCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            marketingCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Aplicación en Marketing</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Planificación de campañas:</strong> Programar promociones en periodos históricamente bajos para impulsar ventas.</li>
+                    <li><strong>Inventario y logística:</strong> Anticipar demanda futura basada en patrones estacionales.</li>
+                    <li><strong>Presupuesto de marketing:</strong> Distribuir inversión publicitaria según periodos de mayor retorno potencial.</li>
+                    <li><strong>Análisis de ROI:</strong> Correlacionar inversiones pasadas en marketing con picos en ventas para medir efectividad.</li>
+                    <li><strong>Forecasting:</strong> Predecir ventas futuras basándose en tendencias y patrones identificados.</li>
+                </ul>
+            `;
+            
+            // Añadir todas las tarjetas al contenedor
+            descriptionContainer.appendChild(generalCard);
+            descriptionContainer.appendChild(statsCard);
+            descriptionContainer.appendChild(interpretationCard);
+            descriptionContainer.appendChild(marketingCard);
+            
+            // Eliminar cualquier descripción antigua
+            removeOldDescriptions();
+        }
+        
+        // Modificar la función fetchDistribution
+        function fetchDistribution(column) {
+            showMessage(`Loading distribution data for ${column}...`);
+            
+            fetch(`/api/distribution?column=${column}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error);
+                        return;
+                    }
+                    
+                    // Create histogram
+                    const trace = {
+                        x: data.data,
+                        type: 'histogram',
+                        marker: {
+                            color: 'rgba(100, 50, 200, 0.7)',
+                            line: {
+                                color: 'rgba(100, 50, 200, 1)',
+                                width: 1
+                            }
+                        }
+                    };
+                    
+                    const layout = {
+                        title: `Distribución de ${data.column}`,
+                        height: 600,
+                        width: chartArea.offsetWidth,
+                        xaxis: {
+                            title: data.column
+                        },
+                        yaxis: {
+                            title: 'Frecuencia'
+                        },
+                        bargap: 0.05
+                    };
+                    
+                    Plotly.newPlot(chartArea, [trace], layout);
+                    
+                    // Calcular estadísticas básicas para la descripción
+                    const values = data.data || [];
+                    const stats = calculateStats(values);
+                    
+                    // Usar una función especializada para la descripción
+                    addDistributionDescription(data.column, stats);
+                })
+                .catch(error => {
+                    showMessage('Error fetching distribution data: ' + error);
+                });
+        }
+        
+        // Función para calcular estadísticas básicas
+        function calculateStats(values) {
+            if (!values || values.length === 0) {
+                return { mean: 0, median: 0, min: 0, max: 0, std: 0 };
+            }
+            
+            // Ordenar valores para calcular mediana
+            const sortedValues = [...values].sort((a, b) => a - b);
+            const n = sortedValues.length;
+            
+            // Calcular media
+            const sum = sortedValues.reduce((a, b) => a + b, 0);
+            const mean = sum / n;
+            
+            // Calcular mediana
+            const median = n % 2 === 0 
+                ? (sortedValues[n/2 - 1] + sortedValues[n/2]) / 2 
+                : sortedValues[Math.floor(n/2)];
+            
+            // Calcular mínimo y máximo
+            const min = sortedValues[0];
+            const max = sortedValues[n-1];
+            
+            // Calcular desviación estándar
+            const squaredDiffs = sortedValues.map(value => Math.pow(value - mean, 2));
+            const variance = squaredDiffs.reduce((a, b) => a + b, 0) / n;
+            const std = Math.sqrt(variance);
+            
+            return { mean, median, min, max, std };
+        }
+        
+        // Nueva función especializada para distribuciones
+        function addDistributionDescription(column, stats) {
+            // Obtener o crear el contenedor principal
+            let descriptionContainer = document.getElementById('distribution-description-container');
+            
+            if (!descriptionContainer) {
+                descriptionContainer = document.createElement('div');
+                descriptionContainer.id = 'distribution-description-container';
+                descriptionContainer.className = 'mt-6 grid grid-cols-1 md:grid-cols-2 gap-4';
+                
+                // Insertar después del área del gráfico
+                chartArea.parentNode.insertBefore(descriptionContainer, chartArea.nextSibling);
+            } else {
+                // Limpiar el contenedor si ya existe
+                descriptionContainer.innerHTML = '';
+            }
+            
+            // Tarjeta de explicación general
+            const generalCard = document.createElement('div');
+            generalCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            generalCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Distribución de ${column}</h3>
+                <p class="text-gray-700 mb-2">
+                    Este histograma muestra cómo se distribuyen los valores de <strong>${column}</strong> en el conjunto de datos.
+                    La altura de cada barra representa la frecuencia (número de ocurrencias) de valores dentro de ese rango.
+                </p>
+                <p class="text-gray-700">
+                    Analizar la distribución es fundamental para entender la variabilidad de los datos, 
+                    identificar valores atípicos y comprender el comportamiento general de esta variable.
+                </p>
+            `;
+            
+            // Tarjeta de estadísticas
+            const statsCard = document.createElement('div');
+            statsCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            statsCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Estadísticas de ${column}</h3>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div class="bg-purple-50 p-3 rounded-lg">
+                        <p class="text-sm text-purple-700">Media</p>
+                        <p class="text-lg font-bold text-purple-900">${stats.mean.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-blue-50 p-3 rounded-lg">
+                        <p class="text-sm text-blue-700">Mediana</p>
+                        <p class="text-lg font-bold text-blue-900">${stats.median.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-green-50 p-3 rounded-lg">
+                        <p class="text-sm text-green-700">Desv. Estándar</p>
+                        <p class="text-lg font-bold text-green-900">${stats.std.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-amber-50 p-3 rounded-lg">
+                        <p class="text-sm text-amber-700">Mínimo</p>
+                        <p class="text-lg font-bold text-amber-900">${stats.min.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-red-50 p-3 rounded-lg">
+                        <p class="text-sm text-red-700">Máximo</p>
+                        <p class="text-lg font-bold text-red-900">${stats.max.toFixed(2)}</p>
+                    </div>
+                    <div class="bg-indigo-50 p-3 rounded-lg">
+                        <p class="text-sm text-indigo-700">Rango</p>
+                        <p class="text-lg font-bold text-indigo-900">${(stats.max - stats.min).toFixed(2)}</p>
+                    </div>
+                </div>
+            `;
+            
+            // Tarjeta de interpretación
+            const interpretationCard = document.createElement('div');
+            interpretationCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            interpretationCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Interpretación de la Distribución</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Forma:</strong> Una distribución con forma de campana indica normalidad (muchos valores cercanos a la media).</li>
+                    <li><strong>Sesgo:</strong> Si la "cola" de la distribución es más larga hacia un lado, los datos están sesgados en esa dirección.</li>
+                    <li><strong>Bimodalidad:</strong> La presencia de dos "picos" puede indicar dos grupos distintos dentro de los datos.</li>
+                    <li><strong>Valores atípicos:</strong> Barras aisladas lejos del grupo principal representan valores inusuales que merecen atención.</li>
+                </ul>
+            `;
+            
+            // Tarjeta de aplicación en marketing
+            const marketingCard = document.createElement('div');
+            marketingCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            marketingCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Aplicación en Marketing para ${column}</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Segmentación:</strong> Identificar grupos naturales de clientes basados en sus valores de ${column}.</li>
+                    <li><strong>Personalización:</strong> Adaptar ofertas según dónde se ubique cada cliente en la distribución.</li>
+                    <li><strong>Precios:</strong> Si la variable es precio, entender en qué rangos se concentran más las ventas.</li>
+                    <li><strong>Detección de oportunidades:</strong> Áreas con baja frecuencia pueden representar nichos de mercado sin explotar.</li>
+                    <li><strong>Benchmarking:</strong> Comparar la distribución con periodos anteriores para identificar cambios en el comportamiento.</li>
+                </ul>
+            `;
+            
+            // Añadir todas las tarjetas al contenedor
+            descriptionContainer.appendChild(generalCard);
+            descriptionContainer.appendChild(statsCard);
+            descriptionContainer.appendChild(interpretationCard);
+            descriptionContainer.appendChild(marketingCard);
+            
+            // Eliminar cualquier descripción antigua
+            removeOldDescriptions();
+        }
+        
+        // Modificar la función updateScatterPlot
+        function updateScatterPlot() {
+            const xColumn = xAxisSelector.value;
+            const yColumn = yAxisSelector.value;
+            
+            showMessage(`Cargando gráfico de dispersión para ${xColumn} vs ${yColumn}...`);
+            
+            fetch(`/api/scatter?x=${xColumn}&y=${yColumn}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error);
+                        return;
+                    }
+                    
+                    // Crear gráfico de dispersión
+                    const trace = {
+                        x: data.x,
+                        y: data.y,
+                        mode: 'markers',
+                        type: 'scatter',
+                        marker: {
+                            color: 'rgba(255, 150, 0, 0.7)',
+                            size: 8,
+                            line: {
+                                color: 'rgba(255, 150, 0, 1)',
+                                width: 1
+                            }
+                        }
+                    };
+                    
+                    const layout = {
+                        title: `${data.y_label} vs ${data.x_label}`,
+                        height: 600,
+                        width: chartArea.offsetWidth,
+                        xaxis: {
+                            title: data.x_label
+                        },
+                        yaxis: {
+                            title: data.y_label
+                        }
+                    };
+                    
+                    Plotly.newPlot(chartArea, [trace], layout);
+                    
+                    // Usar una función especializada para la descripción
+                    addScatterDescription(data.x_label, data.y_label, data.x, data.y);
+                })
+                .catch(error => {
+                    showMessage('Error al obtener datos para el gráfico de dispersión: ' + error);
+                });
+        }
+        
+        // Nueva función especializada para gráficos de dispersión
+        function addScatterDescription(xLabel, yLabel, xData, yData) {
+            // Obtener o crear el contenedor principal
+            let descriptionContainer = document.getElementById('scatter-description-container');
+            
+            if (!descriptionContainer) {
+                descriptionContainer = document.createElement('div');
+                descriptionContainer.id = 'scatter-description-container';
+                descriptionContainer.className = 'mt-6 grid grid-cols-1 md:grid-cols-2 gap-4';
+                
+                // Insertar después del área del gráfico
+                chartArea.parentNode.insertBefore(descriptionContainer, chartArea.nextSibling);
+            } else {
+                // Limpiar el contenedor si ya existe
+                descriptionContainer.innerHTML = '';
+            }
+            
+            // Calcular correlación
+            let correlation = 0;
+            if (xData && yData && xData.length === yData.length && xData.length > 0) {
+                const n = xData.length;
+                const xMean = xData.reduce((a, b) => a + b, 0) / n;
+                const yMean = yData.reduce((a, b) => a + b, 0) / n;
+                
+                let numerator = 0;
+                let xDenominator = 0;
+                let yDenominator = 0;
+                
+                for (let i = 0; i < n; i++) {
+                    const xDiff = xData[i] - xMean;
+                    const yDiff = yData[i] - yMean;
+                    numerator += xDiff * yDiff;
+                    xDenominator += xDiff * xDiff;
+                    yDenominator += yDiff * yDiff;
+                }
+                
+                correlation = numerator / (Math.sqrt(xDenominator) * Math.sqrt(yDenominator));
+            }
+            
+            // Determinar tipo de correlación para descripción
+            let correlationType = 'ninguna';
+            let correlationClass = 'text-gray-700';
+            
+            if (correlation > 0.7) {
+                correlationType = 'fuerte positiva';
+                correlationClass = 'text-green-700 font-semibold';
+            } else if (correlation > 0.3) {
+                correlationType = 'moderada positiva';
+                correlationClass = 'text-green-600 font-semibold';
+            } else if (correlation > 0.1) {
+                correlationType = 'débil positiva';
+                correlationClass = 'text-green-500 font-semibold';
+            } else if (correlation > -0.1) {
+                correlationType = 'muy débil o nula';
+                correlationClass = 'text-gray-700 font-semibold';
+            } else if (correlation > -0.3) {
+                correlationType = 'débil negativa';
+                correlationClass = 'text-red-500 font-semibold';
+            } else if (correlation > -0.7) {
+                correlationType = 'moderada negativa';
+                correlationClass = 'text-red-600 font-semibold';
+            } else {
+                correlationType = 'fuerte negativa';
+                correlationClass = 'text-red-700 font-semibold';
+            }
+            
+            // Tarjeta de explicación general
+            const generalCard = document.createElement('div');
+            generalCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            generalCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Relación entre ${xLabel} y ${yLabel}</h3>
+                <p class="text-gray-700 mb-2">
+                    Este gráfico de dispersión muestra la relación entre <strong>${xLabel}</strong> y <strong>${yLabel}</strong>.
+                    Cada punto representa una observación individual en los datos.
+                </p>
+                <p class="text-gray-700 mb-2">
+                    La correlación calculada entre estas variables es <span class="${correlationClass}">${correlation.toFixed(3)}</span>,
+                    lo que indica una relación <span class="${correlationClass}">${correlationType}</span>.
+                </p>
+                <p class="text-gray-700">
+                    Un gráfico de dispersión es ideal para identificar patrones, tendencias y valores atípicos
+                    en la relación entre dos variables numéricas.
+                </p>
+            `;
+            
+            // Tarjeta de interpretación
+            const interpretationCard = document.createElement('div');
+            interpretationCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            interpretationCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Interpretación del Gráfico</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Tendencia diagonal ascendente:</strong> Indica correlación positiva. Cuando ${xLabel} aumenta, ${yLabel} también tiende a aumentar.</li>
+                    <li><strong>Tendencia diagonal descendente:</strong> Indica correlación negativa. Cuando ${xLabel} aumenta, ${yLabel} tiende a disminuir.</li>
+                    <li><strong>Dispersión aleatoria:</strong> Sugiere poca o ninguna correlación entre las variables.</li>
+                    <li><strong>Agrupaciones:</strong> Concentraciones de puntos pueden indicar segmentos o grupos específicos.</li>
+                    <li><strong>Puntos aislados:</strong> Pueden representar anomalías o casos especiales que merecen análisis adicional.</li>
+                </ul>
+            `;
+            
+            // Tarjeta de aplicación en marketing
+            const marketingCard = document.createElement('div');
+            marketingCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            marketingCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Aplicación en Marketing</h3>
+                <p class="text-gray-700 mb-3">
+                    Entender la relación entre <strong>${xLabel}</strong> y <strong>${yLabel}</strong> puede informar
+                    diversas decisiones estratégicas:
+                </p>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li><strong>Estrategia de precios:</strong> Si las variables incluyen precio, evaluar elasticidad y puntos de precio óptimos.</li>
+                    <li><strong>Segmentación avanzada:</strong> Identificar grupos basados en el comportamiento conjunto de ambas variables.</li>
+                    <li><strong>Predicción:</strong> Utilizar una variable para predecir comportamiento en la otra.</li>
+                    <li><strong>Optimización de recursos:</strong> Enfocar esfuerzos donde la relación sugiera mayor retorno.</li>
+                    <li><strong>Identificación de oportunidades:</strong> Áreas del gráfico con pocos puntos pueden representar nichos sin explotar.</li>
+                </ul>
+            `;
+            
+            // Tarjeta de consideraciones
+            const considerationsCard = document.createElement('div');
+            considerationsCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            considerationsCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Consideraciones Importantes</h3>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-purple-700">Correlación ≠ Causalidad:</strong> 
+                    Que exista correlación no significa que una variable cause cambios en la otra. Pueden existir factores externos influyendo en ambas.
+                </p>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-purple-700">Relaciones no lineales:</strong> 
+                    El coeficiente de correlación solo captura relaciones lineales. Podría existir una relación fuerte pero no lineal (como una curva).
+                </p>
+                <p class="text-gray-700">
+                    <strong class="text-purple-700">Valores atípicos:</strong> 
+                    Puntos extremos pueden distorsionar la correlación general y merecen análisis individual.
+                </p>
+            `;
+            
+            // Añadir todas las tarjetas al contenedor
+            descriptionContainer.appendChild(generalCard);
+            descriptionContainer.appendChild(interpretationCard);
+            descriptionContainer.appendChild(marketingCard);
+            descriptionContainer.appendChild(considerationsCard);
+            
+            // Eliminar cualquier descripción antigua
+            removeOldDescriptions();
+        }
+        
+        // Función para eliminar descripciones antiguas de otros tipos de gráficos
+        function removeOldDescriptions() {
+            const containers = [
+                'chart-description',
+                'pca-description-container',
+                'correlation-description-container',
+                'timeseries-description-container',
+                'distribution-description-container',
+                'scatter-description-container'
+            ];
+            
+            containers.forEach(id => {
+                const container = document.getElementById(id);
+                if (container) {
+                    container.remove();
+                }
+            });
+        }
+
+        function fetchPCAData() {
+            showMessage('Cargando visualización PCA en 3D...');
+            
+            fetch('/api/pca?components=3&clustering=true&n_clusters=3')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showMessage(data.error);
+                        return;
+                    }
+                    
+                    // Extraer datos PCA
+                    const components = data.components;
+                    const explainedVariance = data.explained_variance;
+                    const featureNames = data.feature_names;
+                    const clusters = data.clusters;
+                    
+                    // Preparar datos para el gráfico 3D
+                    const x = components.map(point => point[0]);
+                    const y = components.map(point => point[1]);
+                    const z = components.map(point => point[2]);
+                    
+                    // Crear información detallada para mostrar en hover
+                    const hoverTexts = components.map((point, idx) => {
+                        const clusterNum = clusters[idx] + 1;
+                        // Crear una descripción detallada para el hover
+                        return `<b>Punto ${idx+1}</b><br>` +
+                            `Cluster: ${clusterNum}<br>` +
+                            `Componente 1: ${point[0].toFixed(3)}<br>` +
+                            `Componente 2: ${point[1].toFixed(3)}<br>` +
+                            `Componente 3: ${point[2].toFixed(3)}<br>` +
+                            `<i>Este punto representa un registro con características<br>` +
+                            `similares a otros del Cluster ${clusterNum}</i>`;
+                    });
+                    
+                    // Crear gráfico de dispersión 3D con información detallada en hover
+                    const trace = {
+                        x: x,
+                        y: y,
+                        z: z,
+                        mode: 'markers',
+                        type: 'scatter3d',
+                        marker: {
+                            size: 8,
+                            color: clusters,
+                            colorscale: 'Viridis',
+                            opacity: 0.8
+                        },
+                        text: hoverTexts,
+                        hoverinfo: 'text',
+                        hoverlabel: {
+                            bgcolor: 'white',
+                            bordercolor: 'black',
+                            font: {color: 'black', size: 12}
+                        }
+                    };
+                    
+                    const layout = {
+                        title: {
+                            text: 'Visualización PCA en 3D con Clustering',
+                            font: {size: 20}
+                        },
+                        scene: {
+                            xaxis: { title: `Componente 1 (${(explainedVariance[0] * 100).toFixed(2)}% varianza)` },
+                            yaxis: { title: `Componente 2 (${(explainedVariance[1] * 100).toFixed(2)}% varianza)` },
+                            zaxis: { title: `Componente 3 (${(explainedVariance[2] * 100).toFixed(2)}% varianza)` },
+                            camera: {
+                                eye: {x: 1.5, y: 1.5, z: 1.5}
+                            }
+                        },
+                        margin: {l: 0, r: 0, b: 0, t: 50},
+                        height: 700  // Aumentar la altura para mejor visualización
+                    };
+                    
+                    Plotly.newPlot(chartArea, [trace], layout);
+                    
+                    // Reemplaza la función addChartDescription con esta implementación más estructurada
+                    // que separa las secciones con tarjetas
+                    addPCADescription(explainedVariance);
+                })
+                .catch(error => {
+                    showMessage('Error al obtener datos PCA: ' + error);
+                });
+        }
+
+        // Añade esta nueva función especializada para descripciones de PCA
+        function addPCADescription(explainedVariance) {
+            // Obtener o crear el contenedor principal
+            let descriptionContainer = document.getElementById('pca-description-container');
+            
+            if (!descriptionContainer) {
+                descriptionContainer = document.createElement('div');
+                descriptionContainer.id = 'pca-description-container';
+                descriptionContainer.className = 'mt-6 grid grid-cols-1 md:grid-cols-2 gap-4';
+                
+                // Insertar después del área del gráfico
+                chartArea.parentNode.insertBefore(descriptionContainer, chartArea.nextSibling);
+            } else {
+                // Limpiar el contenedor si ya existe
+                descriptionContainer.innerHTML = '';
+            }
+            
+            // Crear tarjeta de explicación general
+            const generalCard = document.createElement('div');
+            generalCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            generalCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">¿Qué es PCA?</h3>
+                <p class="text-gray-700 mb-2">
+                    El Análisis de Componentes Principales (PCA) es una técnica estadística que reduce 
+                    la dimensionalidad de un conjunto de datos, manteniendo la mayor variabilidad posible.
+                </p>
+                <p class="text-gray-700 mb-2">
+                    PCA transforma las variables originales en un nuevo conjunto de variables llamadas 
+                    componentes principales, que son ortogonales entre sí (no correlacionadas).
+                </p>
+                <p class="text-gray-700">
+                    En esta visualización 3D, los datos se han reducido a 3 dimensiones principales, 
+                    que capturan el <strong>${(explainedVariance.reduce((a, b) => a + b, 0) * 100).toFixed(2)}%</strong> 
+                    de la variabilidad total de los datos originales.
+                </p>
+            `;
+            
+            // Crear tarjeta de interpretación
+            const interpretationCard = document.createElement('div');
+            interpretationCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            interpretationCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Interpretación del Gráfico</h3>
+                <ul class="list-disc ml-5 space-y-2 text-gray-700">
+                    <li>Cada <strong>punto</strong> representa un registro individual (como una venta o cliente).</li>
+                    <li>Los <strong>colores</strong> indican diferentes clusters o segmentos identificados.</li>
+                    <li>Puntos del mismo color tienen características similares y pueden representar un segmento específico de mercado.</li>
+                    <li>La <strong>distancia</strong> entre puntos representa la similitud: puntos cercanos son más similares.</li>
+                </ul>
+            `;
+            
+            // Crear tarjeta de varianza explicada
+            const varianceCard = document.createElement('div');
+            varianceCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            varianceCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Varianza Explicada</h3>
+                <div class="flex items-center justify-center mb-3">
+                    <div class="w-full bg-gray-200 rounded-full h-5">
+                        <div class="bg-blue-600 h-5 rounded-full" style="width: ${(explainedVariance[0] * 100).toFixed(2)}%"></div>
+                    </div>
+                    <span class="ml-2 font-semibold">${(explainedVariance[0] * 100).toFixed(2)}%</span>
+                </div>
+                <div class="flex items-center justify-center mb-3">
+                    <div class="w-full bg-gray-200 rounded-full h-5">
+                        <div class="bg-green-500 h-5 rounded-full" style="width: ${(explainedVariance[1] * 100).toFixed(2)}%"></div>
+                    </div>
+                    <span class="ml-2 font-semibold">${(explainedVariance[1] * 100).toFixed(2)}%</span>
+                </div>
+                <div class="flex items-center justify-center">
+                    <div class="w-full bg-gray-200 rounded-full h-5">
+                        <div class="bg-purple-500 h-5 rounded-full" style="width: ${(explainedVariance[2] * 100).toFixed(2)}%"></div>
+                    </div>
+                    <span class="ml-2 font-semibold">${(explainedVariance[2] * 100).toFixed(2)}%</span>
+                </div>
+                <p class="text-xs text-gray-500 mt-2 text-center">Porcentaje de varianza explicada por cada componente</p>
+            `;
+            
+            // Crear tarjeta de aplicación en marketing
+            const marketingCard = document.createElement('div');
+            marketingCard.className = 'bg-white p-4 rounded-lg shadow-md';
+            marketingCard.innerHTML = `
+                <h3 class="text-xl font-bold text-blue-800 mb-3">Aplicación en Marketing</h3>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-purple-700">Segmentación de clientes:</strong> Cada cluster puede representar un 
+                    segmento distinto de clientes con comportamientos de compra similares.
+                </p>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-purple-700">Personalización:</strong> Permite crear estrategias de marketing 
+                    específicas para cada segmento identificado.
+                </p>
+                <p class="text-gray-700 mb-2">
+                    <strong class="text-purple-700">Optimización de recursos:</strong> Ayuda a dirigir los esfuerzos de 
+                    marketing hacia los segmentos más rentables o con mayor potencial.
+                </p>
+                <p class="text-gray-700">
+                    <strong class="text-purple-700">Detección de anomalías:</strong> Puntos aislados pueden representar 
+                    comportamientos atípicos o nuevas oportunidades de mercado.
+                </p>
+            `;
+            
+            // Crear tarjeta de instrucciones interactivas
+            const interactionCard = document.createElement('div');
+            interactionCard.className = 'col-span-1 md:col-span-2 bg-blue-50 p-4 rounded-lg shadow-md';
+            interactionCard.innerHTML = `
+                <h3 class="text-lg font-bold text-blue-800 mb-2">Cómo interactuar con el gráfico 3D:</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                    <div class="bg-white p-2 rounded shadow">
+                        <span class="font-bold block">Rotar:</span> 
+                        Haz clic y arrastra para ver el gráfico desde diferentes ángulos
+                    </div>
+                    <div class="bg-white p-2 rounded shadow">
+                        <span class="font-bold block">Zoom:</span> 
+                        Utiliza la rueda del ratón o pellizca en dispositivos táctiles
+                    </div>
+                    <div class="bg-white p-2 rounded shadow">
+                        <span class="font-bold block">Información detallada:</span> 
+                        Pasa el cursor sobre cualquier punto para ver sus datos específicos
+                    </div>
+                </div>
+            `;
+            
+            // Añadir todas las tarjetas al contenedor
+            descriptionContainer.appendChild(generalCard);
+            descriptionContainer.appendChild(interpretationCard);
+            descriptionContainer.appendChild(varianceCard);
+            descriptionContainer.appendChild(marketingCard);
+            descriptionContainer.appendChild(interactionCard);
+            
+            // Eliminar cualquier descripción antigua que pudiera existir
+            const oldDescription = document.getElementById('chart-description');
+            if (oldDescription) {
+                oldDescription.remove();
+            }
+        }
+
+        function addChartDescription(descriptionHTML) {
+            // Crear o actualizar el div de descripción
+            let descriptionDiv = document.getElementById('chart-description');
+            
+            if (!descriptionDiv) {
+                descriptionDiv = document.createElement('div');
+                descriptionDiv.id = 'chart-description';
+                descriptionDiv.className = 'mt-4 p-4 bg-gray-100 rounded-lg';
+                
+                // Insertar después del área del gráfico
+                chartArea.parentNode.insertBefore(descriptionDiv, chartArea.nextSibling);
+            }
+            
+            descriptionDiv.innerHTML = descriptionHTML;
+        }
+    });
+</script>
+{% endblock %}
