@@ -1,23 +1,25 @@
 
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marketing Analytics Dashboard</title>
-    <!-- Include Tailwind CSS via CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Include Plotly.js for charts -->
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <!-- Include custom styles -->
-    <style>
-        .chart-container {
-            height: 500px;
-            width: 100%;
-            margin-bottom: 2rem;
-        }
-    </style>
-</head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Marketing Analytics Dashboard</title>
+        <!-- Favicon -->
+        <link rel="icon" href="{{ url_for('static', filename='img/sns-icon.png') }}" type="image/png">
+        <!-- Include Tailwind CSS via CDN -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- Include Plotly.js for charts -->
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <!-- Include custom styles -->
+        <style>
+            .chart-container {
+                height: 500px;
+                width: 100%;
+                margin-bottom: 2rem;
+            }
+        </style>
+    </head>
 <body class="bg-gray-100 min-h-screen">
     <header class="bg-blue-600 text-white shadow-lg">
         <div class="container mx-auto px-4 py-6">
