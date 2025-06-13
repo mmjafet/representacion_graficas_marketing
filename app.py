@@ -18,7 +18,17 @@ df_global = None
 
 def load_data(filepath):
     try:
-        df = pd.read_csv(filepath)
+        # Try different encodings
+        for encoding in ['latin1', 'iso-8859-1', 'cp1252']:
+            try:
+                df = pd.read_csv(filepath, encoding=encoding)
+                print(f"Successfully loaded file with encoding: {encoding}")
+                return df
+            except UnicodeDecodeError:
+                continue
+        
+        # If all encodings fail, try with error handling
+        df = pd.read_csv(filepath, encoding='utf-8', encoding_errors='replace')
         return df
     except Exception as e:
         return str(e)
