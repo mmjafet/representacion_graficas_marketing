@@ -1,81 +1,48 @@
+from flask import Flask, request, jsonify
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
+from funciones import (
+    load_data,
+    preprocess_data,
+    get_sales_summary,
+    group_sales_by_date,
+    get_correlation_matrix,
+    get_sales_distribution,
+    perform_pca_analysis
+)
 
-def load_data(filepath):
-    """Carga el archivo CSV y convierte fechas si es necesario."""
-    try:
-        df = pd.read_csv(filepath)
-        return df
-    except Exception as e:
-        return str(e)
+app = Flask(__name__)
 
-def preprocess_data(df):
-    """Convierte fechas y ordena datos por fecha."""
-    if 'ORDERDATE' in df.columns:
-        df['ORDERDATE'] = pd.to_datetime(df['ORDERDATE'], errors='coerce')
-        df = df.dropna(subset=['ORDERDATE'])
-        df = df.sort_values('ORDERDATE')
-    return df
+@app.route("/")
+def index():
+    return "API de análisis de ventas activa ✅"
 
-def get_sales_summary(df):
-    """Devuelve estadísticas generales de ventas."""
-    return {
-        "total_sales": float(df['SALES'].sum()),
-        "average_sales": float(df['SALES'].mean()),
-        "max_sales": float(df['SALES'].max()),
-        "min_sales": float(df['SALES'].min()),
-        "total_orders": int(df.shape[0])
-    }
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    if 'file' not in request.files:
+        return jsonify({"error": "No se envió un archivo"}), 400
 
-def group_sales_by_date(df):
-    """Agrupa ventas por fecha."""
-    return df.groupby('ORDERDATE', as_index=False)['SALES'].sum()
-
-def get_correlation_matrix(df):
-    """Calcula la matriz de correlación de columnas numéricas."""
-    return df.select_dtypes(include=['number']).corr()
-
-def get_sales_distribution(df, column='SALES'):
-    """Devuelve los valores de distribución para una columna numérica."""
-    if column not in df.columns:
-        return None
-    return {
-        "mean": float(df[column].mean()),
-        "std": float(df[column].std()),
-        "min": float(df[column].min()),
-        "max": float(df[column].max()),
-        "25%": float(df[column].quantile(0.25)),
-        "50%": float(df[column].median()),
-        "75%": float(df[column].quantile(0.75))
-    }
-
-def perform_pca_analysis(df, n_components=3, apply_clustering=True, n_clusters=3):
-    """Realiza PCA con opción de aplicar clustering."""
-    df_num = df.select_dtypes(include=['number']).dropna()
+    file = request.files['file']
     
-    if df_num.shape[0] == 0 or df_num.shape[1] < n_components:
-        return {"error": "No hay suficientes datos numéricos para realizar PCA"}
+    try:
+        df = pd.read_csv(file)
+        df = preprocess_data(df)
 
-    scaler = StandardScaler()
-    df_scaled = scaler.fit_transform(df_num)
+        summary = get_sales_summary(df)
+        grouped = group_sales_by_date(df).to_dict(orient='records')
+        correlation = get_correlation_matrix(df).to_dict()
+        distribution = get_sales_distribution(df)
+        pca = perform_pca_analysis(df)
 
-    pca = PCA(n_components=n_components)
-    pca_result = pca.fit_transform(df_scaled)
+        return jsonify({
+            "summary": summary,
+            "sales_grouped_by_date": grouped,
+            "correlation_matrix": correlation,
+            "sales_distribution": distribution,
+            "pca": pca
+        })
 
-    pca_df = pd.DataFrame(pca_result, columns=[f'PC{i+1}' for i in range(n_components)])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    result = {
-        "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
-        "components": pca_df.to_dict(orient='records')
-    }
-
-    if apply_clustering:
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-        clusters = kmeans.fit_predict(pca_df)
-        pca_df['cluster'] = clusters
-        result["components"] = pca_df.to_dict(orient='records')
-
-    return result
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
